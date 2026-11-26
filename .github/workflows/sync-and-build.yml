@@ -1,0 +1,48 @@
+
+name: Sync and Build Victory Windows
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: victory-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync upstream
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/avatarmanz/VIctory-7900XTX.git
+          git fetch upstream main
+          git merge upstream/main --no-edit
+          git push origin main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile Victory
+        run: cargo build --release --bin victory
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Victory-Windows-x64
+          path: target/release/victory.exe
+          if-no-files-found: error
+          retention-days: 7
