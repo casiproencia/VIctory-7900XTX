@@ -24,25 +24,62 @@ jobs:
           fetch-depth: 0
 
       - name: Sync upstream
+        id: sync
         shell: bash
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git remote add upstream https://github.com/avatarmanz/VIctory-7900XTX.git
           git fetch upstream main
+
           git merge upstream/main --no-edit
           git push origin main
 
+          UPSTREAM=$(git rev-parse upstream/main)
+          SHORT=$(git rev-parse --short upstream/main)
+          DATE=$(date -u +'%Y-%m-%d_%H-%M')
+
+          echo "commit=$UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+
+          LAST=$(git ls-remote origin refs/tags/last-successful-build | cut -f1)
+
+          if [ "$UPSTREAM" != "$LAST" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "New build required"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already compiled. No changes."
+          fi
+
       - name: Install Rust
+        if: steps.sync.outputs.changed == 'true'
         uses: dtolnay/rust-toolchain@stable
 
       - name: Compile Victory
+        if: steps.sync.outputs.changed == 'true'
         run: cargo build --release --bin victory
 
       - name: Upload executable
+        if: steps.sync.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Victory-Windows-x64
+          name: Victory-Windows-x64-${{ steps.sync.outputs.date }}-${{ steps.sync.outputs.short }}
           path: target/release/victory.exe
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
+
+      - name: Mark successful build
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git tag -f last-successful-build "${{ steps.sync.outputs.commit }}"
+          git push origin refs/tags/last-successful-build --force
+
+      - name: No changes
+        if: steps.sync.outputs.changed == 'false'
+        run: echo "Already up to date. Compilation skipped."
